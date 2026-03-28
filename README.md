@@ -35,7 +35,6 @@ A Databricks SQL Dashboard queries the Parquet file to visualize the 15-minute m
 
 ## 📊 Dashboard Preview
 ![European Energy Market Dashboard](analysis.png)
-*(Note: Replace the link above with the actual path to your screenshot once uploaded to the repo)*
 
 ## 📂 Repository Structure
 
@@ -55,4 +54,4 @@ To deploy this pipeline in your own environment:
 5. **Automation:** Attach the Notebook to a new Databricks Workflow and set a daily trigger schedule.
 
 ***
-*Architected and developed by Supreet* 
+*Architected and developed by Supreet Bhat* 
