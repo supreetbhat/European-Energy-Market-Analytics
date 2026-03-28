@@ -1,147 +1,58 @@
-# Automated Energy-Market ETL Pipeline ⚡📊
+# ⚡ Automated ETL Pipeline: European Energy Market (ENTSO-E)
 
-## 📖 Overview
+An automated, cloud-native Data Engineering pipeline that extracts Day-Ahead wholesale electricity prices from the European transmission grid, transforms complex interval-based XML data into a chronological time-series, and serves it through an interactive Databricks SQL Dashboard.
 
-This project is an end-to-end, automated Data Engineering pipeline designed to handle European energy market data. It extracts live day-ahead energy prices and corresponding weather data, processes it for anomalies using distributed computing, and loads it into a cloud data warehouse to power a live strategic dashboard.
+## 🎯 Project Overview
+Wholesale electricity prices in the Germany/Luxembourg (DE-LU) bidding zone are highly volatile, frequently dropping below zero during peak renewable generation hours. To analyze these trends, this project establishes a reliable, automated ETL (Extract, Transform, Load) pipeline.
 
-This project demonstrates production-ready data engineering practices, shifting from manual data science scripts to fully automated, cloud-hosted architectures.
+The core engineering challenge was handling the ENTSO-E API's nested XML response, which groups prices into 15-minute intervals (Position 1-96) rather than standard timestamps, and often includes overlapping duplicate auction data. This pipeline dynamically parses the XML, filters anomalies, and calculates exact chronological timestamps using PySpark time-delta operations.
 
----
+## 🏗️ Architecture & Tech Stack
+* **Language:** Python
+* **Extraction:** `requests`, `xml.etree.ElementTree`, `datetime`
+* **Transformation & Compute:** PySpark, Pandas, Azure Databricks (Serverless Compute)
+* **Storage:** Databricks Unity Catalog (Columnar Parquet format)
+* **Orchestration:** Databricks Workflows (Scheduled Cron Job)
+* **Visualization:** Databricks SQL Dashboards
 
-## 🛠️ Tech Stack
+## ⚙️ Pipeline Execution Flow
 
-| Layer | Technology |
-|---|---|
-| **Extraction** | Python, REST APIs (ENTSO-E, Open-Meteo) |
-| **Transformation** | PySpark, Databricks (Community Edition) |
-| **Orchestration** | Apache Airflow, Docker |
-| **Cloud Storage** | Google Cloud Platform — Cloud Storage & BigQuery |
-| **Visualization** | Power BI / DAX |
+### 1. Extract (API Integration)
+A Python script connects to the ENTSO-E Transparency Platform REST API using a secure authorization token. It requests the trailing 24 hours of Day-Ahead pricing data for the DE-LU zone. The raw, nested XML payload is ingested directly into an Azure Databricks Unity Catalog Volume (`/raw_data/`).
 
----
+### 2. Transform (PySpark & Time-Series Math)
+The pipeline reads the raw XML from the cloud volume and performs the following transformations:
+* **Namespace Cleaning:** Strips complex XML namespaces for standard parsing.
+* **Duplicate Filtering:** Isolates the primary 15-minute auction data by filtering out secondary/overlapping local auction blocks.
+* **Chronological Calculation:** Extracts the block `<start>` time and iteratively adds 15-minute `timedelta` increments based on the specific `<position>` tag to generate a true, continuous `Timestamp`.
+* **Data Type Casting:** Converts string outputs into strict float arrays for pricing.
 
-## 📋 Prerequisites
+### 3. Load & Orchestrate
+The clean dataset is converted into a highly optimized PySpark DataFrame and written back to the Unity Catalog as a compressed `Parquet` file. The entire process is containerized within a Databricks Workflow, scheduled to run automatically every night at 02:00 AM.
 
-Before you begin, ensure you have the following installed and configured:
+### 4. Visualize
+A Databricks SQL Dashboard queries the Parquet file to visualize the 15-minute market fluctuations, highlighting the evening demand spikes and midday renewable energy price drops.
 
-- Python 3.9+
-- Docker Desktop (for running Apache Airflow locally)
-- A free [ENTSO-E API Key](https://transparency.entsoe.eu/)
-- A free [Databricks Community Edition](https://community.cloud.databricks.com/) account
-- A Google Cloud Platform (GCP) account with BigQuery enabled
-- Power BI Desktop
+## 📊 Dashboard Preview
+![European Energy Market Dashboard](analysis.png)
+*(Note: Replace the link above with the actual path to your screenshot once uploaded to the repo)*
 
----
+## 📂 Repository Structure
 
-## 🚀 Development & Execution Guide
+* `src/pipeline.py` : The master Python script containing the Extraction and Transformation logic.
+* `data/sample_output.csv` : A static 10-row sample of the final cleaned output for quick reference.
+* `.gitignore` : Security configurations to prevent credential leaks.
+* `README.md` : Project documentation and architectural overview.
 
-### Phase 1 — Local Setup & Data Extraction
+## 🚀 Setup & Reproduction
 
-**Goal:** Prove you can reliably connect to external systems and extract data.
+To deploy this pipeline in your own environment:
 
-**1. Clone the repository:**
-```bash
-git clone https://github.com/yourusername/energy-market-etl.git
-cd energy-market-etl
-```
+1. **API Access:** Register on the ENTSO-E Transparency Platform and request a standard RESTful API security token.
+2. **Cloud Environment:** Provision an Azure Databricks workspace and create a standard compute cluster.
+3. **Storage Setup:** Create a new Unity Catalog Volume named `raw_data`.
+4. **Execution:** Update the `API_KEY` and `Volume` paths in `src/fetch_energy_data.py` and run the script within a Databricks Notebook.
+5. **Automation:** Attach the Notebook to a new Databricks Workflow and set a daily trigger schedule.
 
-**2. Create a virtual environment and install dependencies:**
-```bash
-python -m venv venv
-source venv/bin/activate        # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-**3. Create a `.env` file in the root directory and add your credentials:**
-```env
-ENTSOE_API_KEY=your_api_key_here
-GCP_PROJECT_ID=your_gcp_project_id
-```
-
-**4. Run the extraction script to test the API connection:**
-```bash
-python src/extract/fetch_energy_data.py
-```
-
-✅ **Expected output:** A raw JSON/CSV file saved in the `data/raw/` folder.
-
----
-
-### Phase 2 — Big Data Transformation (PySpark)
-
-**Goal:** Prove you can handle massive datasets and ensure data quality.
-
-1. Upload the raw data to your Databricks Community Edition workspace.
-2. Open the notebook at `src/transform/clean_energy_data.ipynb`.
-3. Execute the PySpark cells to:
-   - Drop null values and handle missing timestamps
-   - Merge ENTSO-E pricing data with Open-Meteo weather data
-   - Enforce schema rules (e.g., ensuring prices are floats, not strings)
-4. Export the cleaned dataset as a **Parquet file**.
-
----
-
-### Phase 3 — Orchestration (Apache Airflow)
-
-**Goal:** Prove you can automate the entire workflow without manual intervention.
-
-**1. Initialise the Airflow environment using Docker:**
-```bash
-docker-compose up -d
-```
-
-**2. Access the Airflow UI:**
-
-Navigate to [http://localhost:8080](http://localhost:8080) in your browser.
-
-> Default credentials: `airflow` / `airflow`
-
-**3. Activate the pipeline:**
-
-- Place `energy_pipeline_dag.py` into your `dags/` folder.
-- Turn on the DAG in the Airflow UI.
-
-The DAG is scheduled to run **automatically every day at 08:00 AM**.
-
----
-
-### Phase 4 — Cloud Deployment (GCP BigQuery)
-
-**Goal:** Prove you understand enterprise cloud environments.
-
-**1. Authenticate your local machine with GCP:**
-```bash
-gcloud auth application-default login
-```
-
-**2. Push data to BigQuery:**
-
-Update the final step of your Airflow DAG to load the cleaned PySpark DataFrame directly into a BigQuery table using the `pandas-gbq` library or native GCP Airflow hooks.
-
-**3. Verify the data has landed in your BigQuery console.**
-
----
-
-### Phase 5 — Enterprise Visualization (Power BI)
-
-**Goal:** Prove you can deliver business value to stakeholders.
-
-1. Open **Power BI Desktop**.
-2. Go to **Get Data → Google BigQuery** and connect using **DirectQuery** mode.
-3. Build the following KPIs using DAX:
-   - Average Daily Energy Price
-   - Price Volatility Index
-   - Correlation between wind/solar generation and price drops
-4. **Publish** the dashboard to Power BI Service for automatic daily refresh.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome. Fork the repository and submit a pull request with your proposed changes.
-
----
-
-## 📝 License
-
-This project is licensed under the [MIT License](LICENSE).
+***
+*Architected and developed by Supreet* 
